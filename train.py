@@ -15,15 +15,16 @@ import accelerate
 import safetensors.torch as safetorch
 import torch
 import torch._dynamo
+from torch.profiler import profile, record_function, ProfilerActivity
 from torch import distributed as dist
 from torch import multiprocessing as mp
 from torch import optim
 from torch.utils import data, flop_counter
+from torch.utils.flop_counter import FlopCounterMode
 from torchvision import datasets, transforms, utils
 from tqdm.auto import tqdm
-
+from rich import print
 import k_diffusion as K
-
 
 def ensure_distributed():
     if not dist.is_initialized():
@@ -136,7 +137,7 @@ def main():
 
     if args.compile:
         inner_model.compile()
-        # inner_model_ema.compile()
+        inner_model_ema.compile()
 
     if accelerator.is_main_process:
         print(f'Parameters: {K.utils.n_params(inner_model):,}')
@@ -240,16 +241,14 @@ def main():
 
     inner_model, inner_model_ema, opt, train_dl = accelerator.prepare(inner_model, inner_model_ema, opt, train_dl)
 
-    with torch.no_grad(), K.models.flops.flop_counter() as fc:
+    with torch.no_grad():
         x = torch.zeros([1, model_config['input_channels'], size[0], size[1]], device=device)
         sigma = torch.ones([1], device=device)
         extra_args = {}
         if getattr(unwrap(inner_model), "num_classes", 0):
             extra_args['class_cond'] = torch.zeros([1], dtype=torch.long, device=device)
         inner_model(x, sigma, **extra_args)
-        if accelerator.is_main_process:
-            print(f"Forward pass GFLOPs: {fc.flops / 1_000_000_000:,.3f}", flush=True)
-
+        
     if use_wandb:
         wandb.watch(inner_model)
     if accelerator.num_processes == 1:
@@ -428,98 +427,125 @@ def main():
         evaluate()
         return
 
+    num_epochs = 1  # Set the number of epochs you want to run
+    epoch = 0
+    step = 0
     losses_since_last_print = []
+    theoretical_peak_flops = 312e12  # Theoretical peak performance for A100 GPU in FLOPs
 
     try:
-        while True:
-            for batch in tqdm(train_dl, smoothing=0.1, disable=not accelerator.is_main_process):
-                if device.type == 'cuda':
-                    start_timer = torch.cuda.Event(enable_timing=True)
-                    end_timer = torch.cuda.Event(enable_timing=True)
-                    torch.cuda.synchronize()
-                    start_timer.record()
-                else:
-                    start_timer = time.time()
+        for epoch in range(num_epochs):
+            start_epoch_time = time.time()  # Record the start time of the epoch
 
-                with accelerator.accumulate(model):
-                    reals, _, aug_cond = batch[image_key]
-                    class_cond, extra_args = None, {}
-                    if num_classes:
-                        class_cond = batch[class_key]
-                        drop = torch.rand(class_cond.shape, device=class_cond.device)
-                        class_cond.masked_fill_(drop < cond_dropout_rate, num_classes)
-                        extra_args['class_cond'] = class_cond
-                    noise = torch.randn_like(reals)
-                    with K.utils.enable_stratified_accelerate(accelerator, disable=args.gns):
-                        sigma = sample_density([reals.shape[0]], device=device)
-                    with K.models.checkpointing(args.checkpointing):
-                        losses = model.loss(reals, noise, sigma, aug_cond=aug_cond, **extra_args)
-                    loss = accelerator.gather(losses).mean().item()
-                    losses_since_last_print.append(loss)
-                    accelerator.backward(losses.mean())
-                    if args.gns:
-                        sq_norm_small_batch, sq_norm_large_batch = gns_stats_hook.get_stats()
-                        gns_stats.update(sq_norm_small_batch, sq_norm_large_batch, reals.shape[0], reals.shape[0] * accelerator.num_processes)
-                    if accelerator.sync_gradients:
-                        accelerator.clip_grad_norm_(model.parameters(), 1.)
-                    opt.step()
-                    sched.step()
-                    opt.zero_grad()
+            with profile(
+                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                record_shapes=True,
+                with_flops=True
+            ) as prof:
+                for batch in tqdm(train_dl, smoothing=0.1, disable=not accelerator.is_main_process):
+                    if device.type == 'cuda':
+                        start_timer = torch.cuda.Event(enable_timing=True)
+                        end_timer = torch.cuda.Event(enable_timing=True)
+                        torch.cuda.synchronize()
+                        start_timer.record()
+                    else:
+                        start_timer = time.time()
 
-                    ema_decay = ema_sched.get_value()
-                    K.utils.ema_update_dict(ema_stats, {'loss': loss}, ema_decay ** (1 / args.grad_accum_steps))
-                    if accelerator.sync_gradients:
-                        K.utils.ema_update(model, model_ema, ema_decay)
-                        ema_sched.step()
-
-                if device.type == 'cuda':
-                    end_timer.record()
-                    torch.cuda.synchronize()
-                    elapsed += start_timer.elapsed_time(end_timer) / 1000
-                else:
-                    elapsed += time.time() - start_timer
-
-                if step % 25 == 0:
-                    loss_disp = sum(losses_since_last_print) / len(losses_since_last_print)
-                    losses_since_last_print.clear()
-                    avg_loss = ema_stats['loss']
-                    if accelerator.is_main_process:
+                    with accelerator.accumulate(model):
+                        reals, _, aug_cond = batch[image_key]
+                        class_cond, extra_args = None, {}
+                        if num_classes:
+                            class_cond = batch[class_key]
+                            drop = torch.rand(class_cond.shape, device=class_cond.device)
+                            class_cond.masked_fill_(drop < cond_dropout_rate, num_classes)
+                            extra_args['class_cond'] = class_cond
+                        noise = torch.randn_like(reals)
+                        with K.utils.enable_stratified_accelerate(accelerator, disable=args.gns):
+                            sigma = sample_density([reals.shape[0]], device=device)
+                        with K.models.checkpointing(args.checkpointing):
+                            losses = model.loss(reals, noise, sigma, aug_cond=aug_cond, **extra_args)
+                        loss = accelerator.gather(losses).mean().item()
+                        losses_since_last_print.append(loss)
+                        accelerator.backward(losses.mean())
                         if args.gns:
-                            tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss_disp:g}, avg loss: {avg_loss:g}, gns: {gns_stats.get_gns():g}')
-                        else:
-                            tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss_disp:g}, avg loss: {avg_loss:g}')
+                            sq_norm_small_batch, sq_norm_large_batch = gns_stats_hook.get_stats()
+                            gns_stats.update(sq_norm_small_batch, sq_norm_large_batch, reals.shape[0], reals.shape[0] * accelerator.num_processes)
+                        if accelerator.sync_gradients:
+                            accelerator.clip_grad_norm_(model.parameters(), 1.)
+                        opt.step()
+                        sched.step()
+                        opt.zero_grad()
 
-                if use_wandb:
-                    log_dict = {
-                        'epoch': epoch,
-                        'loss': loss,
-                        'lr': sched.get_last_lr()[0],
-                        'ema_decay': ema_decay,
-                    }
-                    if args.gns:
-                        log_dict['gradient_noise_scale'] = gns_stats.get_gns()
-                    wandb.log(log_dict, step=step)
+                        ema_decay = ema_sched.get_value()
+                        K.utils.ema_update_dict(ema_stats, {'loss': loss}, ema_decay ** (1 / args.grad_accum_steps))
+                        if accelerator.sync_gradients:
+                            K.utils.ema_update(model, model_ema, ema_decay)
+                            ema_sched.step()
 
-                step += 1
+                    if device.type == 'cuda':
+                        end_timer.record()
+                        torch.cuda.synchronize()
+                        elapsed += start_timer.elapsed_time(end_timer) / 1000
+                    else:
+                        elapsed += time.time() - start_timer
 
-                if step % args.demo_every == 0:
-                    demo()
+                    if step % 25 == 0:
+                        loss_disp = sum(losses_since_last_print) / len(losses_since_last_print)
+                        losses_since_last_print.clear()
+                        avg_loss = ema_stats['loss']
+                        if accelerator.is_main_process:
+                            # Assuming flop_counter_dynamic is a defined and active counter
+                            total_flops = flop_counter_dynamic.get_total_flops() if 'flop_counter_dynamic' in locals() else 'N/A'
+                            if args.gns:
+                                tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss_disp:g}, avg loss: {avg_loss:g}, gns: {gns_stats.get_gns():g}, total_flops {total_flops}')
+                            else:
+                                tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss_disp:g}, avg loss: {avg_loss:g}, total_flops {total_flops}')
 
-                if evaluate_enabled and step > 0 and step % args.evaluate_every == 0:
-                    evaluate()
+                    if use_wandb:
+                        log_dict = {
+                            'epoch': epoch,
+                            'loss': loss,
+                            'lr': sched.get_last_lr()[0],
+                            'ema_decay': ema_decay,
+                        }
+                        if args.gns:
+                            log_dict['gradient_noise_scale'] = gns_stats.get_gns()
+                        wandb.log(log_dict, step=step)
 
-                if step == args.end_step or (step > 0 and step % args.save_every == 0):
-                    save()
+                    step += 1
 
-                if step == args.end_step:
-                    if accelerator.is_main_process:
-                        tqdm.write('Done!')
-                    return
+                    if step % args.demo_every == 0:
+                        demo()
 
-            epoch += 1
+                    if evaluate_enabled and step > 0 and step % args.evaluate_every == 0:
+                        evaluate()
+
+                    if step == args.end_step or (step > 0 and step % args.save_every == 0):
+                        save()
+
+                    if step == args.end_step:
+                        if accelerator.is_main_process:
+                            tqdm.write('Done!')
+                        break  # Exit the loop after the end step or epoch
+
+        end_epoch_time = time.time()  # Record the end time of the epoch
+        total_epoch_time = end_epoch_time - start_epoch_time
+
+        # Print and export profiling information
+        key_averages = prof.key_averages()
+        total_flops = sum([item.flops for item in key_averages if item.flops is not None])
+        print(f"Total FLOPs: {total_flops / 1e12:.3f} TFLOPs")  # Convert to TFLOPs for readability
+
+        # Calculate MFU
+        mfu = total_flops / (total_epoch_time * theoretical_peak_flops)
+        print(f"MFU: {mfu:.4f}")
+
+        prof.export_chrome_trace(f"trace_epoch_{epoch}.json")
+        print(f"Saved trace_epoch_{epoch}.json")
+
+
     except KeyboardInterrupt:
         pass
-
 
 if __name__ == '__main__':
     main()

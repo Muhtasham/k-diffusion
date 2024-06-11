@@ -437,14 +437,14 @@ def main():
         for epoch in range(args.num_epochs):
 
             with profile(
-                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+            activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 record_shapes=True,
                 with_flops=True
             ) as prof:
 
                 pbar = tqdm(train_dl, smoothing=0.1, disable=not accelerator.is_main_process)
 
-                for batch in tqdm(train_dl, smoothing=0.1, disable=not accelerator.is_main_process):
+                for batch in pbar:
                     if device.type == 'cuda':
                         start_timer = torch.cuda.Event(enable_timing=True)
                         end_timer = torch.cuda.Event(enable_timing=True)
@@ -529,10 +529,10 @@ def main():
                         if accelerator.is_main_process:
                             tqdm.write('Done!')
                         break  # Exit the loop after the end step or epoch
-
-        total_epoch_time = pbar.format_dict["elapsed"]  # Get the elapsed time from tqdm
         
+        total_epoch_time = pbar.format_dict["elapsed"]  # Get the elapsed time from tqdm
         print(f"Elasped time {total_epoch_time}")
+
         # Print and export profiling information
         key_averages = prof.key_averages()
         total_flops = sum([item.flops for item in key_averages if item.flops is not None])

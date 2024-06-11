@@ -71,6 +71,7 @@ def main():
                    help='the mixed precision type')
     p.add_argument('--name', type=str, default='model',
                    help='the name of the run')
+    p.add_argument('--num_epochs', type=int, default=1, help='the number of epochs')
     p.add_argument('--num-workers', type=int, default=8,
                    help='the number of data loader workers')
     p.add_argument('--reset-ema', action='store_true',
@@ -427,21 +428,22 @@ def main():
         evaluate()
         return
 
-    num_epochs = 1  # Set the number of epochs you want to run
     epoch = 0
     step = 0
     losses_since_last_print = []
     theoretical_peak_flops = 312e12  # Theoretical peak performance for A100 GPU in FLOPs
 
     try:
-        for epoch in range(num_epochs):
-            start_epoch_time = time.time()  # Record the start time of the epoch
+        for epoch in range(args.num_epochs):
 
             with profile(
                 activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
                 record_shapes=True,
                 with_flops=True
             ) as prof:
+
+                pbar = tqdm(train_dl, smoothing=0.1, disable=not accelerator.is_main_process)
+
                 for batch in tqdm(train_dl, smoothing=0.1, disable=not accelerator.is_main_process):
                     if device.type == 'cuda':
                         start_timer = torch.cuda.Event(enable_timing=True)
@@ -528,9 +530,9 @@ def main():
                             tqdm.write('Done!')
                         break  # Exit the loop after the end step or epoch
 
-        end_epoch_time = time.time()  # Record the end time of the epoch
-        total_epoch_time = end_epoch_time - start_epoch_time
-
+        total_epoch_time = pbar.format_dict["elapsed"]  # Get the elapsed time from tqdm
+        
+        print(f"Elasped time {total_epoch_time}")
         # Print and export profiling information
         key_averages = prof.key_averages()
         total_flops = sum([item.flops for item in key_averages if item.flops is not None])

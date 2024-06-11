@@ -137,6 +137,7 @@ def main():
     inner_model_ema = deepcopy(inner_model)
 
     if args.compile:
+        torch._dynamo.reset()
         inner_model.compile()
         inner_model_ema.compile()
 

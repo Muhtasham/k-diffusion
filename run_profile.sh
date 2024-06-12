@@ -3,6 +3,11 @@
 # Set the TRITON_PTXAS_PATH
 export TRITON_PTXAS_PATH="/home/ubuntu/.local/lib/python3.10/site-packages/triton/common/../third_party/cuda/bin/ptxas"
 
+# Function to get VRAM usage
+get_vram_usage() {
+    nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+}
+
 # Define a function to run the commands and capture logs
 run_and_log() {
     local config_file=$1
@@ -21,16 +26,18 @@ run_and_log() {
 
     echo "Running: python train.py --config $config_file --name $name --evaluate-n 0 --batch-size $batch_size --sample-n 36 --mixed-precision bf16 $compile_flag"
     
-    # Log initial VRAM usage
-    echo "Initial VRAM usage:" | tee -a $vram_log_file
-    nvidia-smi | tee -a $vram_log_file
-    
-    # Run the training command and log the output
-    python train.py --config $config_file --name $name --evaluate-n 0 --batch-size $batch_size --sample-n 36 --mixed-precision bf16 $compile_flag | tee $log_file
-    
-    # Log final VRAM usage
-    echo "Final VRAM usage:" | tee -a $vram_log_file
-    nvidia-smi | tee -a $vram_log_file
+    # Run the training command and log the output, including tqdm output
+    (python train.py --config $config_file --name $name --evaluate-n 0 --batch-size $batch_size --sample-n 36 --mixed-precision bf16 $compile_flag 2>&1 | tee $log_file) &
+
+    # Get the PID of the training process
+    train_pid=$!
+
+    # Monitor VRAM usage periodically
+    while kill -0 $train_pid 2> /dev/null; do
+        vram_usage=$(get_vram_usage)
+        echo "VRAM usage: $vram_usage MB" | tee -a $vram_log_file
+        sleep 60  # Adjust the sleep duration as needed
+    done
 }
 
 # Create logs directory if it doesn't exist
@@ -39,11 +46,11 @@ mkdir -p logs
 # Run commands for config_oxford_flowers_big.json
 run_and_log "configs/config_oxford_flowers_big.json" "flowers_demo_001" 32 ""
 run_and_log "configs/config_oxford_flowers_big.json" "flowers_demo_001" 32 "--compile"
-run_and_log "configs/config_oxford_flowers_big.json" "flowers_demo_001" 50
+run_and_log "configs/config_oxford_flowers_big.json" "flowers_demo_001" 50 ""
 run_and_log "configs/config_oxford_flowers_big.json" "flowers_demo_001" 50 "--compile"
 
 # Run commands for config_oxford_flowers_shifted_window_big.json
 run_and_log "configs/config_oxford_flowers_shifted_window_big.json" "flowers_demo_001" 32 ""
 run_and_log "configs/config_oxford_flowers_shifted_window_big.json" "flowers_demo_001" 32 "--compile"
-run_and_log "configs/config_oxford_flowers_shifted_window_big.json" "flowers_demo_001" 50
+run_and_log "configs/config_oxford_flowers_shifted_window_big.json" "flowers_demo_001" 50 ""
 run_and_log "configs/config_oxford_flowers_shifted_window_big.json" "flowers_demo_001" 50 "--compile"

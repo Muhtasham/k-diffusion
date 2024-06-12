@@ -10,3 +10,4 @@ wandb/*
 .env
 *.safetensors
 trace_epoch_*.json
+logs/

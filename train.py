@@ -531,8 +531,8 @@ def main():
                             tqdm.write('Done!')
                         break  # Exit the loop after the end step or epoch
         
-        total_epoch_time = pbar.format_dict["elapsed"]  # Get the elapsed time from tqdm
-        print(f"Elasped time: {total_epoch_time}")
+        #total_epoch_time = pbar.format_dict["elapsed"]  # Get the elapsed time from tqdm
+        #print(f"Elasped time: {total_epoch_time}")
 
         # Print and export profiling information
         key_averages = prof.key_averages()
@@ -540,8 +540,8 @@ def main():
         print(f"Total FLOPs: {total_flops / 1e12:.3f} TFLOPs")  # Convert to TFLOPs for readability
 
         # Calculate MFU
-        mfu = total_flops / (total_epoch_time * theoretical_peak_flops)
-        print(f"Estimated MFU: {mfu:.4f}")
+        #mfu = total_flops / (total_epoch_time * theoretical_peak_flops)
+        #print(f"Estimated MFU: {mfu:.4f}")
 
         #prof.export_chrome_trace(f"trace_epoch_{epoch}.json")
         #print(f"Saved trace_epoch_{epoch}.json")

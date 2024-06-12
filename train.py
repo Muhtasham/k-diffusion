@@ -543,8 +543,8 @@ def main():
         mfu = total_flops / (total_epoch_time * theoretical_peak_flops)
         print(f"Estimated MFU: {mfu:.4f}")
 
-        prof.export_chrome_trace(f"trace_epoch_{epoch}.json")
-        print(f"Saved trace_epoch_{epoch}.json")
+        #prof.export_chrome_trace(f"trace_epoch_{epoch}.json")
+        #print(f"Saved trace_epoch_{epoch}.json")
 
 
     except KeyboardInterrupt:

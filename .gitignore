@@ -9,3 +9,4 @@ wandb/*
 *.csv
 .env
 *.safetensors
+trace_epoch_*.json

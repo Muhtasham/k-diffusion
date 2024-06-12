@@ -7,8 +7,8 @@
         "depths": [4, 4, 8],
         "widths": [128, 256, 512],
         "self_attns": [
-            {"type": "neighborhood", "d_head": 128, "kernel_size": 14},
-            {"type": "neighborhood", "d_head": 128, "kernel_size": 14},
+            {"type": "neighborhood", "d_head": 128, "kernel_size": 15},
+            {"type": "neighborhood", "d_head": 128, "kernel_size": 15},
             {"type": "global", "d_head": 128}
         ],
         "loss_config": "karras",

@@ -25,6 +25,7 @@ Also, you should make sure your PyTorch installation is capable of using `torch.
 To train a 256x256 RGB model on [Oxford Flowers](https://www.robots.ox.ac.uk/~vgg/data/flowers) without installing custom CUDA kernels, install [Hugging Face Datasets](https://huggingface.co/docs/datasets/index):
 
 ```sh
+sudo apt install git-lfs
 pip install -U torchvision tabulate rich datasets
 pip install natten==0.17.1+torch230cu121 -f https://shi-labs.com/natten/wheels/
 pip install flash-attn --no-build-isolation

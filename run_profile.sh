@@ -5,13 +5,13 @@ export TRITON_PTXAS_PATH="/home/ubuntu/.local/lib/python3.10/site-packages/trito
 
 # Function to get VRAM usage
 get_vram_usage() {
-    nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits
+    nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | awk '{print $1}'
 }
 
 # Function to extract the latest elapsed time from tqdm output
 extract_elapsed_time() {
     local log_file=$1
-    grep '100%' "$log_file" | tail -1 | awk -F'\\[|\\]' '{print $4}'
+    grep -oP '100%.*\[\K[0-9]+:[0-9]+' "$log_file" | tail -1
 }
 
 # Function to extract parameters from log file
@@ -26,7 +26,7 @@ calculate_mfu() {
     local elapsed_time=$2
     local theoretical_peak_flops=312e12  # A100 GPU bfloat16 peak flops is 312 TFLOPS
 
-    mfu=$(echo "$total_flops / ($elapsed_time * $theoretical_peak_flops)" | bc -l)
+    mfu=$(echo "scale=6; $total_flops / ($elapsed_time * $theoretical_peak_flops)" | bc -l)
     echo "$mfu"
 }
 
@@ -87,18 +87,31 @@ run_and_log() {
         minutes=${BASH_REMATCH[1]}
         seconds=${BASH_REMATCH[2]}
         elapsed_time=$(echo "$minutes * 60 + $seconds" | bc)
+    elif [[ "$elapsed_time" =~ ([0-9]+):([0-9]+):([0-9]+) ]]; then
+        hours=${BASH_REMATCH[1]}
+        minutes=${BASH_REMATCH[2]}
+        seconds=${BASH_REMATCH[3]}
+        elapsed_time=$(echo "$hours * 3600 + $minutes * 60 + $seconds" | bc)
+    else
+        echo "Error extracting elapsed time from log file."
+        elapsed_time=0
     fi
 
     # Extract parameters from log file
     parameters=$(extract_parameters_from_log "$log_file")
 
-    # Calculate total FLOPs (example value, replace with actual extraction logic)
+    # Calculate total FLOPs
     total_flops=$(grep -oP 'Total FLOPs: \K[0-9.]+(?= TFLOPs)' "$log_file" | awk '{print $1 * 1e12}')
     echo "Total FLOPs: $total_flops"
 
     # Calculate MFU
-    mfu=$(calculate_mfu "$total_flops" "$elapsed_time")
-    echo "Estimated MFU: $mfu"
+    if [ "$elapsed_time" -gt 0 ]; then
+        mfu=$(calculate_mfu "$total_flops" "$elapsed_time")
+        echo "Estimated MFU: $mfu"
+    else
+        echo "Error: Elapsed time is zero or not valid. Cannot calculate MFU."
+        mfu="N/A"
+    fi
 
     # Log results to CSV
     log_to_csv "$csv_file" "$batch_size" "$parameters" "$elapsed_time" "$total_flops" "$mfu" "$compile_flag"
@@ -124,4 +137,4 @@ run_and_log "configs/config_oxford_flowers_shifted_window_big.json" "flowers_dem
 run_and_log "configs/config_oxford_flowers_shifted_window_big.json" "flowers_demo_001" 50 "--compile" "$csv_file"
 
 # Output summary
-echo "Profilings completed. Results have been logged to $csv_file."
+echo "Training completed. Results have been logged to $csv_file."

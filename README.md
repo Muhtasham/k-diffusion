@@ -4,6 +4,23 @@
 
 An implementation of [Elucidating the Design Space of Diffusion-Based Generative Models](https://arxiv.org/abs/2206.00364) (Karras et al., 2022) for PyTorch, with enhancements and additional features, such as improved sampling algorithms and transformer-based diffusion models.
 
+## WIP - MFU
+
+Model FLOPS Utilization (MFU) is the metric that tells us how well the accelerator is utilized. 
+
+Here is how it is calculated:
+
+Measure the actual TFLOPS by calculating how many floating point operations a single training iteration takes and dividing that number by the number of seconds this iteration took.
+Divide the actual TFLOPS by advertised TFLOPS to get the MFU
+
+I made a simple script to calculate MFU for A100, for different batch sizes and bigger model configs.
+
+```sh
+bash run_profile.sh
+```
+
+Despite great code and using different kernels and flash attention, the MFU is still not very good. It is around 10%, which is way too low compared to the MFU of the language models, I am working on understanding why, and improving it even more.
+
 ## Hourglass diffusion transformer
 
 `k-diffusion` contains a new model type, `image_transformer_v2`, that uses ideas from [Hourglass Transformer](https://arxiv.org/abs/2110.13711) and [DiT](https://arxiv.org/abs/2212.09748).
@@ -22,7 +39,7 @@ Also, you should make sure your PyTorch installation is capable of using `torch.
 
 #### Demo
 
-To train a 256x256 RGB model on [Oxford Flowers](https://www.robots.ox.ac.uk/~vgg/data/flowers) without installing custom CUDA kernels, install [Hugging Face Datasets](https://huggingface.co/docs/datasets/index):
+To train a 256x256 RGB model on [Oxford Flowers](https://www.robots.ox.ac.uk/~vgg/data/flowers) with installing custom CUDA kernels and [Hugging Face Datasets](https://huggingface.co/docs/datasets/index):
 
 ```sh
 sudo apt install git-lfs

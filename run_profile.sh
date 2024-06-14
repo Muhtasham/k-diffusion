@@ -8,7 +8,7 @@ get_vram_usage() {
     nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | awk '{print $1}'
 }
 
-# Function to extract the latest elapsed time from tqdm output
+# Function to extract the latest elapsed time from tqdm output (as there is profiling overhead which affects usual timing)
 extract_elapsed_time() {
     local log_file=$1
     grep -oP '100%.*\[\K[0-9]+:[0-9]+' "$log_file" | tail -1

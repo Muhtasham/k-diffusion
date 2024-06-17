@@ -7,6 +7,7 @@ data
 *_demo_*.png
 wandb/*
 *.csv
+results.csv.bak
 .env
 *.safetensors
 trace_epoch_*.json

@@ -1,14 +1,22 @@
 #!/bin/bash
 
-# Set the TRITON_PTXAS_PATH
-export TRITON_PTXAS_PATH="/home/ubuntu/.local/lib/python3.10/site-packages/triton/common/../third_party/cuda/bin/ptxas"
+# Automatically set TRITON_PTXAS_PATH using the output of the Python command
+TRITON_PTXAS_PATH=$(python -c "import triton;print(triton.common.backend.path_to_ptxas())")
+export TRITON_PTXAS_PATH
+
+# Function to reset GPU and clear VRAM cache
+reset_gpu() {
+    echo "Resetting GPU to clear VRAM cache..."
+    sudo nvidia-smi --gpu-reset
+    sleep 5  # Give some time for the GPU to reset
+}
 
 # Function to get VRAM usage
 get_vram_usage() {
     nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | awk '{print $1}'
 }
 
-# Function to extract the latest elapsed time from tqdm output (as there is profiling overhead which affects usual timing)
+# Function to extract the latest elapsed time from tqdm output
 extract_elapsed_time() {
     local log_file=$1
     grep -oP '100%.*\[\K[0-9]+:[0-9]+' "$log_file" | tail -1
@@ -26,7 +34,11 @@ calculate_mfu() {
     local elapsed_time=$2
     local theoretical_peak_flops=312e12  # A100 GPU bfloat16 peak flops is 312 TFLOPS
 
-    mfu=$(echo "scale=6; $total_flops / ($elapsed_time * $theoretical_peak_flops)" | bc -l)
+    mfu=$(echo "scale=6; $total_flops / ($elapsed_time * $theoretical_peak_flops)" | bc -l 2>/dev/null)
+    if [[ $? -ne 0 ]]; then
+        echo "Error calculating MFU with bc."
+        mfu="N/A"
+    fi
     echo "$mfu"
 }
 
@@ -39,8 +51,9 @@ log_to_csv() {
     local total_flops=$5
     local mfu=$6
     local compile_flag=$7
+    local config_name=$8
 
-    echo "$batch_size,$parameters,$elapsed_time,$total_flops,$mfu,$compile_flag" >> "$csv_file"
+    echo "$batch_size,$parameters,$elapsed_time,$total_flops,$mfu,$compile_flag,$config_name" >> "$csv_file"
 }
 
 # Define a function to run the commands and capture logs
@@ -50,6 +63,7 @@ run_and_log() {
     local batch_size=$3
     local compile_flag=$4
     local csv_file=$5
+    local config_name=$6
 
     if [ "$compile_flag" == "--compile" ]; then
         compile_text="_compile"
@@ -114,7 +128,7 @@ run_and_log() {
     fi
 
     # Log results to CSV
-    log_to_csv "$csv_file" "$batch_size" "$parameters" "$elapsed_time" "$total_flops" "$mfu" "$compile_flag"
+    log_to_csv "$csv_file" "$batch_size" "$parameters" "$elapsed_time" "$total_flops" "$mfu" "$compile_flag" "$config_name"
 }
 
 # Create logs directory if it doesn't exist
@@ -122,19 +136,45 @@ mkdir -p logs
 
 # CSV file to store results
 csv_file="results.csv"
-echo "Batch Size,Parameters,Elapsed Time (s),Total FLOPs,MFU,Compile Flag" > "$csv_file"
+
+# Check if CSV file already exists
+if [ -f "$csv_file" ]; then
+    # Back up the existing CSV file
+    mv "$csv_file" "${csv_file}.bak"
+    echo "Existing CSV file backed up as ${csv_file}.bak"
+fi
+
+# Create a new CSV file with headers
+echo "Batch Size,Parameters,Elapsed Time (s),Total FLOPs,MFU,Compile Flag,Config" > "$csv_file"
 
 # Run commands for config_oxford_flowers_big.json
-run_and_log "configs/config_oxford_flowers_big.json" "flowers_demo_001" 32 "" "$csv_file"
-run_and_log "configs/config_oxford_flowers_big.json" "flowers_demo_001" 32 "--compile" "$csv_file"
-run_and_log "configs/config_oxford_flowers_big.json" "flowers_demo_001" 50 "" "$csv_file"
-run_and_log "configs/config_oxford_flowers_big.json" "flowers_demo_001" 50 "--compile" "$csv_file"
+reset_gpu
+run_and_log "configs/config_oxford_flowers_big.json" "flowers_demo_001" 32 "" "$csv_file" "natten"
+
+reset_gpu
+run_and_log "configs/config_oxford_flowers_big.json" "flowers_demo_001" 32 "--compile" "$csv_file" "natten"
+
+reset_gpu
+run_and_log "configs/config_oxford_flowers_big.json" "flowers_demo_001" 50 "" "$csv_file" "natten"
+
+reset_gpu
+run_and_log "configs/config_oxford_flowers_big.json" "flowers_demo_001" 50 "--compile" "$csv_file" "natten"
 
 # Run commands for config_oxford_flowers_shifted_window_big.json
-run_and_log "configs/config_oxford_flowers_shifted_window_big.json" "flowers_demo_001" 32 "" "$csv_file"
-run_and_log "configs/config_oxford_flowers_shifted_window_big.json" "flowers_demo_001" 32 "--compile" "$csv_file"
-run_and_log "configs/config_oxford_flowers_shifted_window_big.json" "flowers_demo_001" 50 "" "$csv_file"
-run_and_log "configs/config_oxford_flowers_shifted_window_big.json" "flowers_demo_001" 50 "--compile" "$csv_file"
+reset_gpu
+run_and_log "configs/config_oxford_flowers_shifted_window_big.json" "flowers_demo_001" 32 "" "$csv_file" "shifted_window"
+
+reset_gpu
+run_and_log "configs/config_oxford_flowers_shifted_window_big.json" "flowers_demo_001" 32 "--compile" "$csv_file" "shifted_window"
+
+reset_gpu
+run_and_log "configs/config_oxford_flowers_shifted_window_big.json" "flowers_demo_001" 50 "" "$csv_file" "shifted_window"
+
+reset_gpu
+run_and_log "configs/config_oxford_flowers_shifted_window_big.json" "flowers_demo_001" 50 "--compile" "$csv_file" "shifted_window"
 
 # Output summary
 echo "Training completed. Results have been logged to $csv_file."
+
+# Generate plots from the main results.csv file
+python generate_plots.py

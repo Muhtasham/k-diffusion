@@ -11,6 +11,10 @@ sns.set(style="whitegrid")
 # Convert compile flag to string for better plotting
 data['Compile Flag'] = data['Compile Flag'].apply(lambda x: 'Compile' if '--compile' in str(x) else 'No Compile')
 
+# Calculate MFU
+theoretical_peak_flops = 312e12  # A100 GPU bfloat16 peak flops is 312 TFLOPS
+data['MFU'] = data.apply(lambda row: row['Total FLOPs'] / (row['Elapsed Time (s)'] * theoretical_peak_flops), axis=1)
+
 # Plot MFU
 plt.figure(figsize=(12, 8))
 sns.lineplot(data=data, x='Batch Size', y='MFU', hue='Config', style='Compile Flag', markers=True, dashes=False, palette='Set1')

@@ -5,15 +5,16 @@ import seaborn as sns
 # Load the results CSV file with the appropriate encoding
 data = pd.read_csv('results.csv', encoding='utf-8')
 
+# Calculate MFU if not present
+if 'MFU' not in data.columns or data['MFU'].isnull().any():
+    theoretical_peak_flops = 312e12  # A100 GPU bfloat16 peak flops is 312 TFLOPS
+    data['MFU'] = data.apply(lambda row: row['Total FLOPs'] / (row['Elapsed Time (s)'] * theoretical_peak_flops), axis=1)
+
 # Set the style for the plots
-sns.set(style="whitegrid")
+sns.set_theme(style="whitegrid")
 
 # Convert compile flag to string for better plotting
 data['Compile Flag'] = data['Compile Flag'].apply(lambda x: 'Compile' if '--compile' in str(x) else 'No Compile')
-
-# Calculate MFU
-theoretical_peak_flops = 312e12  # A100 GPU bfloat16 peak flops is 312 TFLOPS
-data['MFU'] = data.apply(lambda row: row['Total FLOPs'] / (row['Elapsed Time (s)'] * theoretical_peak_flops), axis=1)
 
 # Plot MFU
 plt.figure(figsize=(12, 8))

@@ -4,8 +4,9 @@ Model FLOPS Utilization (MFU) is the metric that tells us how well the accelerat
 
 Here is how it is calculated:
 
-Measure the actual TFLOPS by calculating how many floating point operations a single training iteration takes and dividing that number by the number of seconds this iteration took.
-Divide the actual TFLOPS by advertised TFLOPS to get the MFU
+1) Measure the actual TFLOPS by calculating how many floating point operations a single training iteration takes and dividing that number by the number of seconds this iteration took.
+
+2) Divide the actual TFLOPS by advertised TFLOPS to get the MFU
 
 I made a simple script to calculate MFU for A100, for different batch sizes and bigger model configs.
 

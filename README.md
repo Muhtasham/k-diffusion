@@ -1,10 +1,4 @@
-# k-diffusion
-
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.10284390.svg)](https://doi.org/10.5281/zenodo.10284390)
-
-An implementation of [Elucidating the Design Space of Diffusion-Based Generative Models](https://arxiv.org/abs/2206.00364) (Karras et al., 2022) for PyTorch, with enhancements and additional features, such as improved sampling algorithms and transformer-based diffusion models.
-
-## WIP - MFU
+# WIP - MFU
 
 Model FLOPS Utilization (MFU) is the metric that tells us how well the accelerator is utilized. 
 
@@ -19,7 +13,15 @@ I made a simple script to calculate MFU for A100, for different batch sizes and 
 bash run_profile.sh
 ```
 
-Despite great code and using different kernels and flash attention, the MFU is still not very good. It is around 10%, which is way too low compared to the MFU of the language models, I am working on understanding why, and improving it even more.
+Despite almost similar size to nanoGPT and using different kernels and flash attention, the MFU is still around 5% lower than of nanoGPT.
+
+![MFU vs Batch Size](mfu_vs_batch_size.png)
+
+# k-diffusion
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.10284390.svg)](https://doi.org/10.5281/zenodo.10284390)
+
+An implementation of [Elucidating the Design Space of Diffusion-Based Generative Models](https://arxiv.org/abs/2206.00364) (Karras et al., 2022) for PyTorch, with enhancements and additional features, such as improved sampling algorithms and transformer-based diffusion models.
 
 ## Hourglass diffusion transformer
 
